@@ -40,6 +40,10 @@ class DocIntelService:
                 paddle_model=paddle_model,
                 model_type=model_type
             )
+            # 🔥 remove non-serializable debug image bytes
+            if metrics and "debug_images" in metrics:
+                metrics["debug_images"] = {}
+
 
             response = {
                 "request_id": None,

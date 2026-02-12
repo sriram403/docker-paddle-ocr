@@ -16,9 +16,6 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-
-COPY . /app
-
 RUN pip3 install --upgrade pip
 
 RUN pip3 install fastapi uvicorn[standard] httpx pandas numpy opencv-python-headless pymupdf nltk openai uvloop httptools streamlit
@@ -27,6 +24,8 @@ RUN pip3 install fastapi uvicorn[standard] httpx pandas numpy opencv-python-head
 RUN pip3 install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
 
 RUN pip3 install paddlex[ocr]==3.3.6 paddleocr[ocr]==3.3.1
+
+COPY . /app
 
 EXPOSE 8000
 
