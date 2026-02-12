@@ -5,7 +5,7 @@ from app.core.logging import get_logger
 from app.services.doc_intel_service import DocIntelService
 from app.storage.output_writer import save_response
 
-from pdf_structure_app import DocumentProcessor, load_paddle_model
+from app.engine.doc_processor_engine import DocumentProcessor, load_paddle_model
 
 
 router = APIRouter()
