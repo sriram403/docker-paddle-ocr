@@ -161,7 +161,7 @@ from datetime import datetime
 url = "http://AWS_Public_IP:8000/doc-intel"
 
 payload = {
-    "document_url": "https://drive.google.com/uc?export=download&id=1zffFZhQeN_Q8AheoPKePZWZOr5YLnC7j",
+    "document_url": "....",
     "request_id": "test123",
     "num_pages": 5,
     "model_type": "v3",
