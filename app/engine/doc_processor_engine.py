@@ -39,10 +39,6 @@ try:
 except ImportError:
     logger.error("PaddleOCR import failed")
 
-# ---------------------------------------------------
-# NLTK
-# ---------------------------------------------------
-
 def download_nltk_data():
     packages = ['punkt', 'averaged_perceptron_tagger']
     for package in packages:
@@ -50,10 +46,6 @@ def download_nltk_data():
             nltk.data.find(f'tokenizers/{package}')
         except LookupError:
             nltk.download(package, quiet=True)
-
-# ---------------------------------------------------
-# PADDLE MODEL LOADER
-# ---------------------------------------------------
 
 def load_paddle_model(model_type="vl"):
     try:
@@ -78,10 +70,6 @@ def load_paddle_model(model_type="vl"):
     except Exception as e:
         logger.exception("Failed to load PaddleOCR")
         return None
-
-# ---------------------------------------------------
-# TABLE EXTRACTOR
-# ---------------------------------------------------
 
 class TableExtractor:
 
@@ -162,9 +150,6 @@ class TableExtractor:
             self.logger.exception("Table extraction failed")
             return page_num, []
 
-# ---------------------------------------------------
-# DOCUMENT PROCESSOR
-# ---------------------------------------------------
 class DocumentProcessor:
     def __init__(self):
         self.openai_api_key = None
@@ -178,7 +163,6 @@ class DocumentProcessor:
         fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         self.logger.addHandler(fh)
 
-        # --- NEW LABEL CONFIGURATION (Derived from CSV) ---
         self.LABEL_SPECS = {
             "Definitions": {
                 "Purpose": "Identify clauses that define terms used by the regulation; source of canonical term meanings.",
@@ -323,12 +307,10 @@ class DocumentProcessor:
             p_num = p_idx + 1
             page = doc[p_idx]
             
-            # --- FIX: Calculate Total Words from Raw Page (True Baseline) ---
             try:
                 raw_words = page.get_text("words")
                 metrics['total_words'] += len(raw_words)
             except: pass
-            # ----------------------------------------------------------------
 
             zoom = 2.0 if model_type == "vl" else 1.5 
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
@@ -439,7 +421,6 @@ class DocumentProcessor:
                 rich_spans = line_data[3]
                 
                 metrics['kept_words'] += len(line.split())
-                # REMOVED: metrics['total_words'] increment here (now done at page level)
 
                 if line.startswith("<Table_"):
                     current_chunk['content_verbatim'] += f"\n{line}\n"
@@ -510,7 +491,6 @@ class DocumentProcessor:
                         else:
                             raw_id = match_obj.group(1).strip().strip('.')
                     
-                    # Strict Filter for Integer Headers
                     if found_type == 'multi_level_heading' and raw_id.isdigit():
                         has_dot = line.strip().startswith(f"{raw_id}.")
                         rest = line.strip()[len(raw_id):].strip()
@@ -518,7 +498,6 @@ class DocumentProcessor:
                         if not has_dot and not is_clean_title:
                             match_found = False
 
-                    # FMVSS Citation Safety (Bold Check)
                     if found_type == 'fmvss_paragraph':
                         is_id_bold = False
                         if rich_spans:
@@ -655,9 +634,9 @@ class DocumentProcessor:
         if 'symbol' in font_name.lower():
             mapping = self._get_symbol_map()
             text = "".join([mapping.get(c, c) for c in text])
-        # Fix degrees Celsius formatting often broken in OCR
+
         text = re.sub(r'(\d+)\s*[\u03b8q0]\s*([CF])', r'\1°\2', text)
-        # Fix tolerance symbols
+
         text = re.sub(r'\s+[\u03c1rp]\s+(?=\d)', r' ± ', text)
         text = unicodedata.normalize('NFKC', text)
         return text
@@ -666,12 +645,12 @@ class DocumentProcessor:
         if not self.openai_api_key or not chunk_list: 
             return []
 
-        # Prepare input for AI (ID: Text)
+
         input_text = ""
         for c in chunk_list:
             input_text += f"ID {c['chunk_id']}: {c['content_verbatim'][:1000]}\n"
 
-        # Prepare Schema for Labels
+
         label_options = list(self.LABEL_SPECS.keys())
         
         system_prompt = f"""
@@ -721,7 +700,6 @@ class DocumentProcessor:
             if not self.openai_api_key or not summaries:
                 return "No summary available.", "No quote available."
 
-            # 1. Synthesize the summary
             summary_input = "\n".join(f"- {s}" for s in summaries)
             summary_prompt = f"Synthesize these individual points about '{category_name}' into one cohesive paragraph that covers the key aspects. Be concise."
             
@@ -739,7 +717,6 @@ class DocumentProcessor:
             except Exception:
                 final_summary = "Could not generate summary."
 
-            # 2. Select the best quote
             quote_input = "\n".join(f"- \"{q}\"" for q in quotes if q)
             quote_prompt = f"From the following list of quotes for '{category_name}', select the one that best represents the primary, most binding requirement. Return only that single quote, verbatim, without any extra text or quotation marks."
 
@@ -754,7 +731,7 @@ class DocumentProcessor:
                     max_tokens=250
                 )
                 final_quote = quote_resp.choices[0].message.content.strip()
-                # Clean up potential AI artifacts like surrounding quotes
+
                 if final_quote.startswith('"') and final_quote.endswith('"'):
                     final_quote = final_quote[1:-1]
 
@@ -767,11 +744,10 @@ class DocumentProcessor:
         if not analysis_data:
             return {}
 
-        # 1. Group Data by Bundle ID
+
         grouped = defaultdict(list)
-        bundle_meta = {} # Store metadata like page numbers for each bundle
+        bundle_meta = {}
         
-        # Define Logical Category Order (Used for Title Sorting)
         category_order = [
             "Definitions",
             "Applicability/Scope",
@@ -796,20 +772,16 @@ class DocumentProcessor:
         for row in analysis_data:
             bid = row.get("bundle_id", 0)
             grouped[bid].append(row)
-            # Capture page string if not already captured
             if bid not in bundle_meta:
                 bundle_meta[bid] = row.get("Source Page", "N/A")
 
-        # 2. Sort Bundles Numerically
         sorted_bids = sorted(grouped.keys())
         
-        # 3. Construct Final Output Structure
         final_output = {}
         
         for bid in sorted_bids:
             segments = grouped[bid]
             
-            # Sort segments inside the bundle by Clause ID (roughly)
             def seg_sort(item):
                 c_str = item.get("Clause_Range", "").split(' ')[0]
                 parts = []
