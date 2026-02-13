@@ -151,6 +151,39 @@ payload = {
 response = requests.post(url, json=payload)
 print(response.json())
 ```
+Locally
+
+```python
+import requests
+import json
+from datetime import datetime
+
+url = "http://13.49.241.159:8000/doc-intel"
+
+payload = {
+    "document_url": "https://drive.google.com/uc?export=download&id=1zffFZhQeN_Q8AheoPKePZWZOr5YLnC7j",
+    "request_id": "test123",
+    "num_pages": 5,
+    "model_type": "v3",
+    "enable_ai_tables": True,
+    "do_summary": True
+}
+
+response = requests.post(url, json=payload)
+
+if response.status_code == 200:
+    data = response.json()
+
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    req_id = payload.get("request_id", "NA")
+
+    filename = f"LOCAL__DOCINTEL__{ts}__{req_id}.json"
+
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    print(f"Saved locally as {filename}, also created on the server.")
+```
 
 ---
 
