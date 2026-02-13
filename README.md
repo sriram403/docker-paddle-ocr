@@ -158,7 +158,7 @@ import requests
 import json
 from datetime import datetime
 
-url = "http://13.49.241.159:8000/doc-intel"
+url = "http://AWS_Public_IP:8000/doc-intel"
 
 payload = {
     "document_url": "https://drive.google.com/uc?export=download&id=1zffFZhQeN_Q8AheoPKePZWZOr5YLnC7j",
