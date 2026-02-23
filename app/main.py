@@ -1,3 +1,4 @@
+# FILE: app/main.py
 from fastapi import FastAPI
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from app.core.model_registry import preload_models
 from app.core.model_registry import get_paddle_model
 from app.routes.health import router as health_router
 
+from app.routes.pubsub_test import router as pubsub_router
 
 logger = get_logger("main")
 
@@ -15,6 +17,8 @@ app = FastAPI(title="JLR Doc Intelligence API")
 
 app.include_router(doc_router)
 app.include_router(health_router)
+
+app.include_router(pubsub_router)
 
 @app.on_event("startup")
 async def startup_event():

@@ -1,3 +1,4 @@
+# FILE: Dockerfile
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -18,7 +19,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip3 install --upgrade pip
 
-RUN pip3 install fastapi uvicorn[standard] httpx pandas numpy opencv-python-headless pymupdf nltk openai uvloop httptools streamlit
+RUN pip3 install fastapi uvicorn[standard] httpx pandas numpy opencv-python-headless pymupdf nltk openai uvloop httptools streamlit google-cloud-pubsub
 
 # GPU Paddle install (CUDA 12.x)
 RUN pip3 install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
@@ -30,4 +31,3 @@ COPY . /app
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "uvloop", "--http", "httptools"]
-
