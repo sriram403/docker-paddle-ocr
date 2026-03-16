@@ -17,6 +17,7 @@ import numpy as np
 import paddle
 
 from app.core.logger import get_logger
+from app.core.ai_client import AIClientFactory
 
 class DummySt:
     def __getattr__(self, name):
@@ -73,23 +74,15 @@ def load_paddle_model(model_type="vl"):
 
 class TableExtractor:
 
-    def __init__(self, openai_api_key, model="gpt-4o"):
-        self.api_key = openai_api_key
+    def __init__(self, ai_provider="openai", model="gpt-4o"):
+        self.ai_provider = ai_provider
         self.model = model
         self.logger = get_logger("TableExtractor")
 
-        if self.api_key:
-            custom_http_client = httpx.Client(
-                http2=False,
-                timeout=60.0,
-                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
-            )
-            self.client = openai.OpenAI(
-                api_key=self.api_key,
-                http_client=custom_http_client,
-                max_retries=2
-            )
-        else:
+        try:
+            self.client = AIClientFactory.create(ai_provider)
+        except Exception as e:
+            self.logger.error(f"Failed to create AI client: {e}")
             self.client = None
 
     def _convert_page_to_image(self, page, dpi=200, crop_rect=None):
@@ -116,20 +109,19 @@ class TableExtractor:
         try:
             b64_image = self._convert_page_to_image(page, crop_rect=crop_rect)
 
-            response = self.client.chat.completions.create(
+            system_prompt = "Extract tables to JSON"
+            user_prompt = "Extract table data"
+
+            # Use abstracted AI client
+            content = self.client.generate_content_with_image(
+                prompt=user_prompt,
+                base64_image=b64_image,
+                system_prompt=system_prompt,
+                response_format="json",
                 model=self.model,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": "Extract tables to JSON"},
-                    {"role": "user", "content": [
-                        {"type": "text", "text": "Extract table data"},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"}}
-                    ]}
-                ],
                 temperature=0.0
             )
 
-            content = response.choices[0].message.content
             data = json.loads(content)
             processed = []
 
@@ -151,8 +143,9 @@ class TableExtractor:
             return page_num, []
 
 class DocumentProcessor:
-    def __init__(self):
-        self.openai_api_key = None
+    def __init__(self, ai_provider="openai"):
+        self.ai_provider = ai_provider
+        self.openai_api_key = None  # Keep for backward compatibility
         log_file = "doc_processor_debug.log"
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.DEBUG)
@@ -162,6 +155,13 @@ class DocumentProcessor:
         fh = logging.FileHandler(log_file, mode='w', encoding='utf-8')
         fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         self.logger.addHandler(fh)
+
+        # Initialize AI client
+        try:
+            self.ai_client = AIClientFactory.create(ai_provider)
+        except Exception as e:
+            self.logger.error(f"Failed to create AI client: {e}")
+            self.ai_client = None
 
         self.LABEL_SPECS = {
             "Definitions": {
@@ -642,20 +642,18 @@ class DocumentProcessor:
         return text
 
     def _analyze_bundle_with_ai(self, chunk_list, model="gpt-4o-mini"):
-        if not self.openai_api_key or not chunk_list: 
+        if not self.ai_client or not chunk_list:
             return []
-
 
         input_text = ""
         for c in chunk_list:
             input_text += f"ID {c['chunk_id']}: {c['content_verbatim'][:1000]}\n"
 
-
         label_options = list(self.LABEL_SPECS.keys())
-        
+
         system_prompt = f"""
         You are a regulatory compliance expert. Analyze the provided text chunks.
-        
+
         TASK:
         1. Group consecutive chunks that belong to the same specific requirement or logic.
         2. Assign a 'Text Type' (Regulatory, Supporting, Comment).
@@ -667,10 +665,10 @@ class DocumentProcessor:
         OUTPUT JSON FORMAT:
         {{
           "segments": [
-            {{ 
-              "ids": [1, 2], 
-              "text_type": "Regulatory", 
-              "label": "Test Methods", 
+            {{
+              "ids": [1, 2],
+              "text_type": "Regulatory",
+              "label": "Test Methods",
               "summary": "Description of the requirement...",
               "key_quote": "Exact sentence from text."
             }},
@@ -680,16 +678,13 @@ class DocumentProcessor:
         """
 
         try:
-            resp = openai.OpenAI(api_key=self.openai_api_key).chat.completions.create(
+            content = self.ai_client.generate_content(
+                prompt=f"CHUNKS:\n{input_text}",
+                system_prompt=system_prompt,
+                response_format="json",
                 model=model,
-                response_format={"type": "json_object"},
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"CHUNKS:\n{input_text}"}
-                ],
                 temperature=0.0
             )
-            content = resp.choices[0].message.content
             data = json.loads(content)
             return data.get("segments", [])
         except Exception as e:
@@ -697,40 +692,34 @@ class DocumentProcessor:
             return []
 
     def _synthesize_summary_for_category(self, category_name, summaries, quotes, model="gpt-4o-mini"):
-            if not self.openai_api_key or not summaries:
+            if not self.ai_client or not summaries:
                 return "No summary available.", "No quote available."
 
             summary_input = "\n".join(f"- {s}" for s in summaries)
-            summary_prompt = f"Synthesize these individual points about '{category_name}' into one cohesive paragraph that covers the key aspects. Be concise."
-            
+
             try:
-                summary_resp = openai.OpenAI(api_key=self.openai_api_key).chat.completions.create(
+                final_summary = self.ai_client.generate_content(
+                    prompt=f"POINTS:\n{summary_input}\n\nSYNTHESIZED SUMMARY:",
+                    system_prompt="You are a technical summarizer.",
                     model=model,
-                    messages=[
-                        {"role": "system", "content": "You are a technical summarizer."},
-                        {"role": "user", "content": f"POINTS:\n{summary_input}\n\nSYNTHESIZED SUMMARY:"}
-                    ],
                     temperature=0.1,
                     max_tokens=250
                 )
-                final_summary = summary_resp.choices[0].message.content.strip()
+                final_summary = final_summary.strip()
             except Exception:
                 final_summary = "Could not generate summary."
 
             quote_input = "\n".join(f"- \"{q}\"" for q in quotes if q)
-            quote_prompt = f"From the following list of quotes for '{category_name}', select the one that best represents the primary, most binding requirement. Return only that single quote, verbatim, without any extra text or quotation marks."
 
             try:
-                quote_resp = openai.OpenAI(api_key=self.openai_api_key).chat.completions.create(
+                final_quote = self.ai_client.generate_content(
+                    prompt=f"QUOTES:\n{quote_input}\n\nBEST QUOTE:",
+                    system_prompt="You are a compliance expert who selects the most critical verbatim text.",
                     model=model,
-                    messages=[
-                        {"role": "system", "content": "You are a compliance expert who selects the most critical verbatim text."},
-                        {"role": "user", "content": f"QUOTES:\n{quote_input}\n\nBEST QUOTE:"}
-                    ],
                     temperature=0.0,
                     max_tokens=250
                 )
-                final_quote = quote_resp.choices[0].message.content.strip()
+                final_quote = final_quote.strip()
 
                 if final_quote.startswith('"') and final_quote.endswith('"'):
                     final_quote = final_quote[1:-1]
@@ -1729,8 +1718,8 @@ class DocumentProcessor:
 
         ext_pages = set()
 
-        if enable_ai and api_key and metrics.get("detected_tables"):
-            te = TableExtractor(api_key, model=table_model)
+        if enable_ai and metrics.get("detected_tables"):
+            te = TableExtractor(ai_provider=self.ai_provider, model=table_model)
             tasks = []
 
             for p_num, rects in metrics["detected_tables"].items():
@@ -1764,7 +1753,7 @@ class DocumentProcessor:
                 c["Text Type"] = "Unclassified"
 
         summary_data = []
-        if do_summary and api_key:
+        if do_summary and self.ai_client:
             raw_summary_inputs = self.generate_bundle_analysis(
                 final,
                 model=analysis_model

@@ -39,6 +39,11 @@ def save_response(feature: str, response: dict, request_id: str | None = None):
     filename, job_id = build_filename(feature, request_id)
     full_path = os.path.join(OUTPUT_DIR, filename)
 
+    # Update Pub/Sub schema fields if present
+    if "payload" in response:
+        response["payload"]["processed_bucket_path"] = full_path
+
+    # Add legacy fields for backward compatibility
     response["job_id"] = job_id
     response["output_file"] = full_path
 

@@ -1,0 +1,119 @@
+"""
+EVENT DOCUMENTATION
+
+1. Event: PDFUploaded
+Publisher: RMS
+Consumer: RMS AI
+Purpose: Notify that a PDF is uploaded
+
+Schema:
+{
+  "event_id": "uuid",
+  "event_type": "PDFUploaded",
+  "timestamp": "12/03/2026 14:30:00",
+  "source": "RMS",
+  "payload": {
+    "regulation_change_id": "number",
+    "document_version": "number",
+    "gcs_file_path": "string",
+    "file_size_bytes": "number",
+    "mime_type": "string"
+  }
+}
+
+--------------------------------------------------
+
+2. Event: FileProcessingStarted
+Publisher: RMS AI
+Consumer: RMS
+Purpose: Notify that PDF processing has started
+
+Schema:
+{
+  "event_id": "uuid",
+  "event_type": "FileProcessingStarted",
+  "timestamp": "ISO-8601",
+  "source": "RMS",
+  "payload": {
+    "regulation_change_id": "number",
+    "document_version": "number",
+    "gcs_file_path": "string"
+  }
+}
+
+--------------------------------------------------
+
+3. Event: FileProcessingCompleted
+Publisher: RMS AI
+Consumer: RMS
+Purpose: Notify that analysis is complete
+
+Schema:
+{
+  "event_id": "uuid",
+  "event_type": "FileProcessingCompleted",
+  "timestamp": "ISO-8601",
+  "source": "RMS AI",
+  "payload": {
+    "regulation_change_id": "number",
+    "document_version": "number",
+    "processed_bucket_path": "string",
+    "processing_status": "SUCCESS | FAILURE",
+    "processing_time_ms": "number",
+    "error_message": "string | null",
+    "summary_metadata": {
+      "pages_processed": "number",
+      "confidence_score": "number"
+and more detail if we have ..
+    }
+  }
+}
+
+--------------------------------------------------
+
+4. Event: LoadStarted
+Publisher: RMS
+Consumer: RMS
+Purpose: Notify IQM persistence started
+
+Schema:
+{
+  "event_id": "uuid",
+  "event_type": "LoadStarted",
+  "timestamp": "ISO-8601",
+  "source": "RMS",
+  "payload": {
+    "regulation_change_id": "number",
+    "document_version": "number",
+    "processed_bucket_path": "string"
+  }
+}
+
+--------------------------------------------------
+
+5. Event: LoadCompleted
+Publisher: RMS
+Consumer: RMS
+Purpose: Notify IQM persistence completed
+
+Schema:
+{
+  "event_id": "uuid",
+  "event_type": "LoadCompleted",
+  "timestamp": "ISO-8601",
+  "source": "RMS AI",
+  "payload": {
+    "regulation_change_id": "number",
+    "document_version": "number",
+    "processed_bucket_path": "string",
+    "processing_status": "SUCCESS | FAILURE",
+    "processing_time_ms": "number",
+    "error_message": "string | null",
+    "summary_metadata": {
+      "total_chunks_processed": "number",
+      "labels": "number"
+and more detail if we have .. 
+    }
+  }
+}
+"""

@@ -1,6 +1,6 @@
 import httpx
 from fastapi import APIRouter, Body
-from app.core.config import REQUEST_TIMEOUT_S, MAX_DOWNLOAD_MB
+from app.core.config import REQUEST_TIMEOUT_S, MAX_DOWNLOAD_MB, AI_PROVIDER
 from app.core.logging import get_logger
 from app.services.doc_intel_service import DocIntelService
 from app.storage.output_writer import save_response
@@ -39,16 +39,31 @@ def doc_intel_endpoint(payload: dict = Body(...)):
 
     pdf_bytes = download_pdf(document_url)
 
+    # Get AI provider from payload, fallback to env var
+    ai_provider = payload.get("ai_provider", AI_PROVIDER).lower().strip()
+
+    # Validate provider
+    if ai_provider not in ["openai", "vertex"]:
+        return {"status": "failed", "error": f"Invalid ai_provider: {ai_provider}. Use 'openai' or 'vertex'"}
+
+    logger.info(f"Processing document with AI provider: {ai_provider}")
+
     response = service.process_document(
         pdf_bytes=pdf_bytes,
         num_pages=payload.get("num_pages", 10),
         enable_ai_tables=payload.get("enable_ai_tables", False),
         analysis_model=payload.get("analysis_model", "gpt-4o-mini"),
         do_summary=payload.get("do_summary", False),
-        model_type=payload.get("model_type", "v3")
+        model_type=payload.get("model_type", "v3"),
+        ai_provider=ai_provider,
+        regulation_change_id=payload.get("regulation_change_id"),
+        document_version=payload.get("document_version"),
+        gcs_file_path=payload.get("gcs_file_path") or document_url
     )
 
-    response["request_id"] = request_id
+    # Add request_id to payload for tracking (not in Pub/Sub schema but useful)
+    if request_id:
+        response["request_id"] = request_id
 
     response = save_response(
         feature="DOCINTEL",

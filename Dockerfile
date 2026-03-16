@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip3 install --upgrade pip
 
-RUN pip3 install fastapi uvicorn[standard] httpx pandas numpy opencv-python-headless pymupdf nltk openai uvloop httptools streamlit google-cloud-pubsub
+RUN pip3 install fastapi uvicorn[standard] httpx pandas numpy opencv-python-headless pymupdf nltk openai uvloop httptools streamlit google-cloud-pubsub google-genai>=0.5.0 google-auth>=2.30.0
 
 # GPU Paddle install (CUDA 12.x)
 RUN pip3 install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu129/
