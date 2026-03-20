@@ -15,3 +15,8 @@ VERTEX_MODEL = os.getenv("VERTEX_MODEL", "gemini-2.0-flash-exp")
 
 REQUEST_TIMEOUT_S = int(os.getenv("REQUEST_TIMEOUT_S", "60"))
 MAX_DOWNLOAD_MB = int(os.getenv("MAX_DOWNLOAD_MB", "100"))
+
+# Pub/Sub Configuration
+PUBSUB_SUBSCRIPTION = os.getenv("PUBSUB_SUBSCRIPTION", "projects/jlr-dl-iqm/subscriptions/iqm_rms_ai_upload_sub")
+PUBSUB_TOPIC = os.getenv("PUBSUB_TOPIC", "projects/jlr-dl-iqm/topics/iqm_rms_ai")
+ENABLE_PUBSUB_LISTENER = os.getenv("ENABLE_PUBSUB_LISTENER", "true").lower() == "true"

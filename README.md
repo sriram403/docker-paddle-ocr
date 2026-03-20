@@ -5,6 +5,8 @@ This service processes PDF documents via an API endpoint, extracts structured cl
 
 **NEW:** Now supports both **OpenAI GPT** and **Vertex AI Gemini Pro** for AI-powered analysis with runtime provider selection.
 
+**NEW:** Automated **Google Cloud Pub/Sub pull listener** — the service now listens for `PDFUploaded` events and triggers document processing automatically, no HTTP call required.
+
 ---
 
 ## 🚀 Overview
@@ -13,12 +15,13 @@ The JLR Doc Intelligence API is a containerized microservice designed for regula
 
 Main capabilities:
 
-- Download PDF from URL
+- Download PDF from URL or **GCS bucket** (`gs://`)
 - OCR + Layout Analysis using PaddleOCR
 - Clause detection & hierarchy reconstruction
 - **AI table extraction** (OpenAI GPT-4o or Vertex AI Gemini)
 - **AI bundle analysis & summary generation** (OpenAI or Vertex AI)
 - **Runtime AI provider selection** (choose per request or via env var)
+- **Automated Pub/Sub pull listener** — listens for `PDFUploaded` events and triggers processing end-to-end
 - Structured JSON output
 - Automatic output file storage
 
@@ -28,11 +31,12 @@ The service runs inside Docker and exposes a REST API.
 
 ## 🧱 Architecture
 
+**HTTP mode (manual trigger):**
 ```
-Client Script
+Client HTTP Request
       │
       ▼
- FastAPI (app.main)
+ FastAPI (app.main) → POST /doc-intel
       │
       ▼
 DocIntelService
@@ -44,30 +48,60 @@ DocumentProcessor (PaddleOCR + AI)
 Output Writer → JSON Files
 ```
 
+**Pub/Sub mode (automated trigger):**
+```
+RMS publishes PDFUploaded event
+      │
+      ▼
+GCP Pub/Sub Topic (iqm_rms_ai)
+      │
+      ▼
+Subscription (iqm_rms_ai_upload_sub)
+      │
+      ▼
+PubSubListener (background thread, starts with container)
+      │
+      ├─ Publishes FileProcessingStarted
+      ├─ Downloads PDF from GCS bucket
+      ▼
+DocIntelService
+      │
+      ▼
+DocumentProcessor (PaddleOCR + AI)
+      │
+      ▼
+Output Writer → JSON Files
+      │
+      ▼
+Publishes FileProcessingCompleted back to topic
+```
+
 ---
 
 ## 📂 Project Structure
 
 ```
 app/
- ├── main.py                 # FastAPI app entrypoint
+ ├── main.py                 # FastAPI app entrypoint + starts Pub/Sub listener thread
  ├── core/
- │    ├── config.py
+ │    ├── config.py          # All env var config including Pub/Sub settings
  │    ├── logger.py
- │    ├── ai_client.py       # NEW: AI provider abstraction (OpenAI/Vertex)
+ │    ├── ai_client.py       # AI provider abstraction (OpenAI/Vertex)
  │    └── model_registry.py
  ├── routes/
  │    ├── doc_intel.py
- │    └── health.py
+ │    ├── health.py
+ │    └── pubsub_test.py     # Manual Pub/Sub connectivity test endpoint
  ├── services/
- │    └── doc_intel_service.py
+ │    ├── doc_intel_service.py
+ │    └── pubsub_listener.py # NEW: Pull listener for PDFUploaded events
  ├── engine/
  │    └── doc_processor_engine.py
  └── storage/
       └── output_writer.py
 
 Dockerfile
-vertex_smoke_test.py        # NEW: Vertex AI validation script
+vertex_smoke_test.py        # Vertex AI validation script
 ```
 
 ---
@@ -118,6 +152,48 @@ docker run --rm --gpus all \
 ```
 
 **Note:** Vertex AI uses Application Default Credentials (ADC) - no API key needed. Ensure the VM has a service account with `roles/aiplatform.user`.
+
+#### Option C: GCP with Pub/Sub Listener (Full Automated Pipeline)
+
+The Pub/Sub listener is **enabled by default**. When running on GCP, the container automatically starts listening for `PDFUploaded` events and processes documents end-to-end.
+
+```bash
+docker run --rm --gpus all \
+  -p 8000:8000 \
+  -e AI_PROVIDER=vertex \
+  -e GCP_PROJECT_ID=jlr-dl-iqm \
+  -e GCP_LOCATION=europe-west2 \
+  -e OUTPUT_DIR=/outputs \
+  -v $(pwd)/outputs:/outputs \
+  -v ~/paddle_models:/root/.paddleocr \
+  jlr-doc-intel
+```
+
+Override the subscription if needed (e.g. staging environment):
+
+```bash
+docker run --rm --gpus all \
+  -p 8000:8000 \
+  -e AI_PROVIDER=vertex \
+  -e GCP_PROJECT_ID=jlr-dl-iqm \
+  -e GCP_LOCATION=europe-west2 \
+  -e PUBSUB_SUBSCRIPTION=projects/jlr-dl-iqm/subscriptions/iqm_rms_ai_staging_sub \
+  -e PUBSUB_TOPIC=projects/jlr-dl-iqm/topics/iqm_rms_ai_staging \
+  -v $(pwd)/outputs:/outputs \
+  jlr-doc-intel
+```
+
+Disable the listener entirely (HTTP-only mode):
+
+```bash
+docker run --rm --gpus all \
+  -p 8000:8000 \
+  -e AI_PROVIDER=openai \
+  -e OPENAI_API_KEY=sk-your-key \
+  -e ENABLE_PUBSUB_LISTENER=false \
+  -v $(pwd)/outputs:/outputs \
+  jlr-doc-intel
+```
 
 ---
 
@@ -377,6 +453,16 @@ Include these fields in your API request for full Pub/Sub compliance:
 - `AI_PROVIDER=openai` → Uses OpenAI GPT-4 (requires `OPENAI_API_KEY`)
 - `AI_PROVIDER=vertex` → Uses Vertex AI Gemini (requires `GCP_PROJECT_ID` and ADC)
 
+### Pub/Sub Listener Configuration
+| Variable | Description | Default |
+|---|---|---|
+| **ENABLE_PUBSUB_LISTENER** | Enable/disable background pull listener | `true` |
+| **PUBSUB_SUBSCRIPTION** | Full subscription path to pull from | `projects/jlr-dl-iqm/subscriptions/iqm_rms_ai_upload_sub` |
+| **PUBSUB_TOPIC** | Full topic path to publish events back to | `projects/jlr-dl-iqm/topics/iqm_rms_ai` |
+
+- Set `ENABLE_PUBSUB_LISTENER=false` to run in HTTP-only mode (no background listener)
+- Override `PUBSUB_SUBSCRIPTION` to point to a different subscription (e.g. staging vs prod)
+
 ---
 
 ## 🧠 Model Loading
@@ -445,6 +531,104 @@ python vertex_smoke_test.py "Reply with: Vertex smoke test OK"
 Vertex smoke test OK. I'm running in europe-west2.
 
 ✅ Smoke test PASSED
+```
+
+---
+
+## 📨 Google Cloud Pub/Sub Integration
+
+### Event Flow
+
+This service participates in a 3-event pipeline with RMS:
+
+| Step | Event | Direction | Description |
+|---|---|---|---|
+| 1 | `PDFUploaded` | RMS → RMS AI | RMS notifies a PDF is ready in GCS |
+| 2 | `FileProcessingStarted` | RMS AI → RMS | This service acknowledges it started |
+| 3 | `FileProcessingCompleted` | RMS AI → RMS | Processing done, results published |
+
+### PDFUploaded Message Schema
+
+This is the message the listener expects to receive:
+
+```json
+{
+  "event_id": "uuid",
+  "event_type": "PDFUploaded",
+  "timestamp": "2026-03-20T10:00:00Z",
+  "source": "RMS",
+  "payload": {
+    "regulation_change_id": 12345,
+    "document_version": 2,
+    "gcs_file_path": "gs://your-bucket/regulations/doc.pdf",
+    "file_size_bytes": 204800,
+    "mime_type": "application/pdf"
+  }
+}
+```
+
+The listener ignores any message that is not `event_type: PDFUploaded`.
+
+### Setting Up the Subscription (GCP)
+
+Create the pull subscription once (only needs to be done once per environment):
+
+```bash
+gcloud pubsub subscriptions create iqm_rms_ai_upload_sub \
+  --topic=iqm_rms_ai \
+  --project=jlr-dl-iqm
+```
+
+Grant the container's service account permission to pull and publish:
+
+```bash
+# Allow pulling from subscription
+gcloud projects add-iam-policy-binding jlr-dl-iqm \
+  --member="serviceAccount:YOUR_SA@jlr-dl-iqm.iam.gserviceaccount.com" \
+  --role="roles/pubsub.subscriber"
+
+# Allow publishing results back to topic
+gcloud projects add-iam-policy-binding jlr-dl-iqm \
+  --member="serviceAccount:YOUR_SA@jlr-dl-iqm.iam.gserviceaccount.com" \
+  --role="roles/pubsub.publisher"
+
+# Allow downloading PDFs from GCS
+gcloud projects add-iam-policy-binding jlr-dl-iqm \
+  --member="serviceAccount:YOUR_SA@jlr-dl-iqm.iam.gserviceaccount.com" \
+  --role="roles/storage.objectViewer"
+```
+
+### How the Listener Works at Runtime
+
+When the container starts, a background daemon thread is launched automatically:
+
+1. Connects to `PUBSUB_SUBSCRIPTION` (default: `projects/jlr-dl-iqm/subscriptions/iqm_rms_ai_upload_sub`)
+2. Waits for incoming `PDFUploaded` messages
+3. On each message:
+   - Publishes `FileProcessingStarted` to `PUBSUB_TOPIC`
+   - Downloads the PDF from GCS (`gcs_file_path`)
+   - Runs the full OCR + AI pipeline
+   - Saves the output JSON to `OUTPUT_DIR`
+   - Publishes `FileProcessingCompleted` to `PUBSUB_TOPIC`
+   - `ack()` the message — or `nack()` on failure so GCP retries
+
+The HTTP endpoint (`POST /doc-intel`) continues to work alongside the listener.
+
+### Testing the Pub/Sub Connectivity
+
+```bash
+# Test that the service can publish to the topic
+curl http://localhost:8000/test-pubsub
+```
+
+Expected response:
+```json
+{
+  "status": "success",
+  "message": "Hello World published successfully",
+  "message_id": "1234567890",
+  "topic": "projects/jlr-dl-iqm/topics/iqm_rms_ai"
+}
 ```
 
 ---
@@ -763,6 +947,42 @@ curl -I YOUR_PDF_URL
 docker run -e REQUEST_TIMEOUT_S=120 ...
 ```
 
+**Pub/Sub listener not starting:**
+```bash
+# Check container logs for listener startup message
+docker logs <container_name> | grep "pubsub"
+
+# Verify ENABLE_PUBSUB_LISTENER is not set to false
+docker run -e ENABLE_PUBSUB_LISTENER=true ...
+```
+
+**Pub/Sub listener: permission denied (403):**
+```bash
+# Check service account has subscriber role
+gcloud projects get-iam-policy jlr-dl-iqm \
+  --flatten="bindings[].members" \
+  --filter="bindings.role:roles/pubsub.subscriber"
+```
+
+**Pub/Sub listener: subscription not found:**
+```bash
+# Create the subscription if it doesn't exist
+gcloud pubsub subscriptions create iqm_rms_ai_upload_sub \
+  --topic=iqm_rms_ai \
+  --project=jlr-dl-iqm
+
+# Or verify it exists
+gcloud pubsub subscriptions list --project=jlr-dl-iqm
+```
+
+**GCS download fails (PDF not found):**
+```bash
+# Check the service account has Storage Object Viewer role
+gcloud projects add-iam-policy-binding jlr-dl-iqm \
+  --member="serviceAccount:YOUR_SA@jlr-dl-iqm.iam.gserviceaccount.com" \
+  --role="roles/storage.objectViewer"
+```
+
 **GPU not detected:**
 ```bash
 # Verify NVIDIA runtime
@@ -778,15 +998,6 @@ nvidia-container-cli --version
 2. **Batch Processing:** Process multiple pages but start with small `num_pages` for testing
 3. **AI Tables:** Set `enable_ai_tables=false` for faster processing if tables not needed
 4. **Summaries:** Set `do_summary=false` to skip AI analysis and speed up processing
-
-### Security Best Practices
-
-1. **Never commit API keys** to version control
-2. **Use environment variables** for sensitive data
-3. **On GCP, prefer ADC** over API keys
-4. **Rotate API keys** regularly
-5. **Monitor API usage** to detect anomalies
-6. **Use HTTPS** in production (not HTTP)
 
 ---
 
