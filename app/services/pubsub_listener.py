@@ -54,7 +54,7 @@ def _handle_message(message: pubsub_v1.subscriber.message.Message, publisher: pu
         event = json.loads(raw)
     except Exception as e:
         logger.error(f"Failed to decode message: {e}")
-        message.nack()
+        message.ack()
         return
 
     event_type = event.get("event_type")
@@ -69,8 +69,8 @@ def _handle_message(message: pubsub_v1.subscriber.message.Message, publisher: pu
     document_version = payload.get("document_version")
 
     if not gcs_file_path:
-        logger.error("PDFUploaded event missing gcs_file_path — nacking")
-        message.nack()
+        logger.error("PDFUploaded event missing gcs_file_path — acking (permanent error, no retry)")
+        message.ack()
         return
 
     logger.info(f"Received PDFUploaded | regulation_change_id={regulation_change_id} | path={gcs_file_path}")
