@@ -1,6 +1,5 @@
 # FILE: app/services/pubsub_listener.py
 import json
-import base64
 import threading
 import uuid
 from datetime import datetime
@@ -51,7 +50,7 @@ def _publish_event(publisher: pubsub_v1.PublisherClient, event: dict):
 def _handle_message(message: pubsub_v1.subscriber.message.Message, publisher: pubsub_v1.PublisherClient):
     """Process a single PDFUploaded Pub/Sub message."""
     try:
-        raw = base64.b64decode(message.data).decode("utf-8")
+        raw = message.data.decode("utf-8")
         event = json.loads(raw)
     except Exception as e:
         logger.error(f"Failed to decode message: {e}")

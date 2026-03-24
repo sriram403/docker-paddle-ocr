@@ -3,3 +3,6 @@ __pycache__/
 logs/
 outputs/
 *.log
+experiment_1.ipynb
+vertex_smoke_test.py
+image001.png
