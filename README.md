@@ -70,10 +70,11 @@ DocIntelService
 DocumentProcessor (PaddleOCR + AI)
       │
       ▼
-Output Writer → JSON Files
-      │
+Output Writer → JSON saved locally + uploaded to GCS
+      │          (gs://bucket/regulations/output/<filename>.json)
       ▼
 Publishes FileProcessingCompleted back to topic
+      (with event_type set as Pub/Sub message attribute)
 ```
 
 ---
@@ -320,7 +321,7 @@ JLR__DOCINTEL__20260212T081913__job_xxxx__test123.json
   "payload": {
     "regulation_change_id": 12345,
     "document_version": 2,
-    "processed_bucket_path": "/outputs/JLR__DOCINTEL__20260316T103000__job_xxx__test123.json",
+    "processed_bucket_path": "gs://your-bucket/regulations/output/JLR__DOCINTEL__20260316T103000__job_xxx__test123.json",
     "processing_status": "SUCCESS",
     "processing_time_ms": 45230,
     "error_message": null,
@@ -343,7 +344,7 @@ JLR__DOCINTEL__20260212T081913__job_xxxx__test123.json
   },
   "request_id": "test123",
   "job_id": "job_20260316_103000_a1b2",
-  "output_file": "/outputs/JLR__DOCINTEL__20260316T103000__job_xxx__test123.json"
+  "output_file": "gs://your-bucket/regulations/output/JLR__DOCINTEL__20260316T103000__job_xxx__test123.json"
 }
 ```
 
@@ -569,6 +570,20 @@ This is the message the listener expects to receive:
 
 The listener ignores any message that is not `event_type: PDFUploaded`.
 
+### Pub/Sub Message Attributes
+
+All outgoing events (`FileProcessingStarted`, `FileProcessingCompleted`) include `event_type` as a **Pub/Sub message attribute** in addition to the JSON body. This allows RMS to filter messages at the subscription level:
+
+```bash
+# Create a subscription that only receives FileProcessingCompleted events
+gcloud pubsub subscriptions create rms-completed-sub \
+  --topic=iqm_rms_ai \
+  --project=jlr-dl-iqm \
+  --message-filter='attributes.event_type = "FileProcessingCompleted"'
+```
+
+Without this filter, a subscriber on the same topic would receive all event types including `FileProcessingStarted`.
+
 ### Setting Up the Subscription (GCP)
 
 Create the pull subscription once (only needs to be done once per environment):
@@ -596,6 +611,11 @@ gcloud projects add-iam-policy-binding jlr-dl-iqm \
 gcloud projects add-iam-policy-binding jlr-dl-iqm \
   --member="serviceAccount:YOUR_SA@jlr-dl-iqm.iam.gserviceaccount.com" \
   --role="roles/storage.objectViewer"
+
+# Allow uploading output JSON to GCS
+gcloud projects add-iam-policy-binding jlr-dl-iqm \
+  --member="serviceAccount:YOUR_SA@jlr-dl-iqm.iam.gserviceaccount.com" \
+  --role="roles/storage.objectCreator"
 ```
 
 ### How the Listener Works at Runtime
@@ -608,9 +628,12 @@ When the container starts, a background daemon thread is launched automatically:
    - Publishes `FileProcessingStarted` to `PUBSUB_TOPIC`
    - Downloads the PDF from GCS (`gcs_file_path`)
    - Runs the full OCR + AI pipeline
-   - Saves the output JSON to `OUTPUT_DIR`
-   - Publishes `FileProcessingCompleted` to `PUBSUB_TOPIC`
-   - `ack()` the message — or `nack()` on failure so GCP retries
+   - Saves the output JSON locally to `OUTPUT_DIR`
+   - Uploads the output JSON to GCS at `gs://<bucket>/<input_dir>/output/<filename>.json` (derived from the input PDF path)
+   - `processed_bucket_path` in the event is set to the real GCS URI
+   - Publishes `FileProcessingCompleted` to `PUBSUB_TOPIC` with `event_type` set as a **message attribute** (for subscription filtering)
+   - `ack()` the message — or `nack()` only on transient failures (e.g. GCS download error) so GCP retries
+   - Bad/malformed messages (missing fields, decode errors) are `ack()`-ed immediately to prevent infinite retry loops
 
 The HTTP endpoint (`POST /doc-intel`) continues to work alongside the listener.
 
@@ -982,6 +1005,18 @@ gcloud projects add-iam-policy-binding jlr-dl-iqm \
   --member="serviceAccount:YOUR_SA@jlr-dl-iqm.iam.gserviceaccount.com" \
   --role="roles/storage.objectViewer"
 ```
+
+**GCS upload fails (output JSON not appearing in bucket):**
+```bash
+# Check logs for "GCS upload permission denied" or "GCS upload failed"
+docker logs <container_name> | grep "GCS upload"
+
+# Add Storage Object Creator role to the service account
+gcloud projects add-iam-policy-binding jlr-dl-iqm \
+  --member="serviceAccount:YOUR_SA@jlr-dl-iqm.iam.gserviceaccount.com" \
+  --role="roles/storage.objectCreator"
+```
+Note: If GCS upload fails, the output is still saved locally inside the container and the pipeline continues. Check logs for `GCS upload failed — output is only available locally at:` warning.
 
 **GPU not detected:**
 ```bash
