@@ -40,9 +40,10 @@ def _publish_event(publisher: pubsub_v1.PublisherClient, event: dict):
     """Publish a Pub/Sub event back to the configured topic."""
     try:
         data = json.dumps(event).encode("utf-8")
-        future = publisher.publish(PUBSUB_TOPIC, data)
+        event_type = event.get("event_type", "")
+        future = publisher.publish(PUBSUB_TOPIC, data, event_type=event_type)
         message_id = future.result(timeout=10)
-        logger.info(f"Published {event.get('event_type')} event, message_id={message_id}")
+        logger.info(f"Published {event_type} event with attribute event_type={event_type}, message_id={message_id}")
     except Exception as e:
         logger.error(f"Failed to publish event: {e}")
 
@@ -110,11 +111,12 @@ def _handle_message(message: pubsub_v1.subscriber.message.Message, publisher: pu
         gcs_file_path=gcs_file_path,
     )
 
-    # Save output JSON
+    # Save output JSON locally and upload to GCS
     response = save_response(
         feature="DOCINTEL",
         response=response,
         request_id=str(regulation_change_id) if regulation_change_id else None,
+        gcs_file_path=gcs_file_path,
     )
 
     # Publish FileProcessingCompleted back to topic
