@@ -51,9 +51,11 @@ class DocIntelService:
 
             processing_time_ms = int((time.time() - start_time) * 1000)
 
-            # 🔥 remove non-serializable debug image bytes
+            # remove non-serializable objects from metrics before building response
             if metrics and "debug_images" in metrics:
                 metrics["debug_images"] = {}
+            if metrics and "detected_tables" in metrics:
+                metrics["detected_tables"] = {}
 
             # Count total chunks and labels
             total_chunks = len(result) if result else 0

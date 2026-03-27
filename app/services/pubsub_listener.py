@@ -119,8 +119,13 @@ def _handle_message(message: pubsub_v1.subscriber.message.Message, publisher: pu
         gcs_file_path=gcs_file_path,
     )
 
-    # Publish FileProcessingCompleted back to topic
-    _publish_event(publisher, response)
+    # Publish FileProcessingCompleted back to topic — metadata only, full data lives in GCS
+    payload = response.get("payload", {})
+    metadata_event = {
+        **{k: v for k, v in response.items() if k != "payload"},
+        "payload": {k: v for k, v in payload.items() if k != "data"},
+    }
+    _publish_event(publisher, metadata_event)
 
     message.ack()
     logger.info(f"Done processing {gcs_file_path}")

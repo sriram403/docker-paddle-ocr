@@ -310,7 +310,9 @@ JLR__DOCINTEL__20260212T081913__job_xxxx__test123.json
 
 ### Response Schema
 
-**Success Response:**
+**Success Response (FileProcessingCompleted Pub/Sub event — metadata only):**
+
+> The `FileProcessingCompleted` event published to Pub/Sub contains **metadata only**. The full structured output (results, metrics, summary) is saved to the GCS file at `processed_bucket_path`. Consumers should download the file from GCS to read the full data.
 
 ```json
 {
@@ -335,16 +337,26 @@ JLR__DOCINTEL__20260212T081913__job_xxxx__test123.json
       "analysis_model": "gpt-4o-mini",
       "tables_detected": 5,
       "summary_generated": true
-    },
+    }
+  },
+  "job_id": "job_20260316_103000_a1b2",
+  "output_file": "gs://your-bucket/regulations/output/JLR__DOCINTEL__20260316T103000__job_xxx__test123.json"
+}
+```
+
+**GCS output file** (at `processed_bucket_path`) contains the full payload including the `data` field:
+
+```json
+{
+  ...same as above...,
+  "payload": {
+    ...same metadata fields...,
     "data": {
       "results": [...],
       "metrics": {...},
       "summary": {...}
     }
-  },
-  "request_id": "test123",
-  "job_id": "job_20260316_103000_a1b2",
-  "output_file": "gs://your-bucket/regulations/output/JLR__DOCINTEL__20260316T103000__job_xxx__test123.json"
+  }
 }
 ```
 
@@ -631,7 +643,8 @@ When the container starts, a background daemon thread is launched automatically:
    - Saves the output JSON locally to `OUTPUT_DIR`
    - Uploads the output JSON to GCS at `gs://<bucket>/<input_dir>/output/<filename>.json` (derived from the input PDF path)
    - `processed_bucket_path` in the event is set to the real GCS URI
-   - Publishes `FileProcessingCompleted` to `PUBSUB_TOPIC` with `event_type` set as a **message attribute** (for subscription filtering)
+   - Publishes `FileProcessingCompleted` to `PUBSUB_TOPIC` — **metadata only** (no `data` field); the full output (results, metrics, summary) lives in the GCS file at `processed_bucket_path`. Consumers should fetch from GCS rather than the event body.
+   - `event_type` is set as a **Pub/Sub message attribute** (for subscription filtering)
    - `ack()` the message — or `nack()` only on transient failures (e.g. GCS download error) so GCP retries
    - Bad/malformed messages (missing fields, decode errors) are `ack()`-ed immediately to prevent infinite retry loops
 
@@ -1017,6 +1030,15 @@ gcloud projects add-iam-policy-binding jlr-dl-iqm \
   --role="roles/storage.objectCreator"
 ```
 Note: If GCS upload fails, the output is still saved locally inside the container and the pipeline continues. Check logs for `GCS upload failed — output is only available locally at:` warning.
+
+**PaddleX model download warnings at startup (`temp_dir already exists`):**
+
+On container restart, PaddleX may log warnings like:
+```
+Destination path '/root/.paddlex/official_models/.../temp_dir' already exists,
+will try to download from other model sources: `aistudio`.
+```
+This happens when a prior download was interrupted and left a stale `temp_dir`. The Dockerfile CMD automatically cleans these up before uvicorn starts, so the model will re-download cleanly. If you see the warning **persisting after a fresh container start**, check that `/root/.paddlex/` is not mounted as a read-only volume. If egress to HuggingFace and aistudio is blocked in your network, see TODO item 3 (pre-bake models into image) as a permanent fix.
 
 **GPU not detected:**
 ```bash

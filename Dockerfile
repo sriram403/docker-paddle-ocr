@@ -30,4 +30,4 @@ COPY . /app
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "uvloop", "--http", "httptools"]
+CMD ["sh", "-c", "find /root/.paddlex/official_models -type d -name 'temp_dir' -exec rm -rf {} + 2>/dev/null || true && uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop uvloop --http httptools"]
