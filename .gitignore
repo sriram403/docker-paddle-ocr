@@ -3,6 +3,7 @@ __pycache__/
 logs/
 outputs/
 checkpoints/
+models/
 gpu_worker.lock
 *.log
 experiment_1.ipynb

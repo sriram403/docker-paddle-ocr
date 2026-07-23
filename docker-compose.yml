@@ -6,6 +6,7 @@ services:
     environment:
       MODEL_DIR: /models/PaddleOCR-VL-1.5
       VLLM_GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.75}
+      VLLM_LOGGING_LEVEL: ${VLLM_LOGGING_LEVEL:-INFO}
       VLLM_MODEL_NAME: ${VLLM_MODEL_NAME:-PaddleOCR-VL-1.5-0.9B}
     gpus: all
     healthcheck:
@@ -16,7 +17,7 @@ services:
       start_period: 90s
     restart: unless-stopped
     volumes:
-      - ${PADDLEX_MODEL_ROOT:-/home/ubuntu/.paddlex/official_models}:/models:ro
+      - ${PADDLEX_MODEL_ROOT:-./models}:/models:ro
 
   api:
     build:
@@ -60,4 +61,4 @@ services:
       - ./outputs:/outputs
       - ./logs:/logs
       - ./checkpoints:/checkpoints
-      - ${PADDLEX_MODEL_ROOT:-/home/ubuntu/.paddlex/official_models}:/root/.paddlex/official_models
+      - ${PADDLEX_MODEL_ROOT:-./models}:/root/.paddlex/official_models

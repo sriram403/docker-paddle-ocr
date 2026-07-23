@@ -8,6 +8,9 @@ The service extracts document hierarchy, clauses, tables, figures, references,
 topic labels, requirement labels, text-type labels, and an optional regulatory
 briefing.
 
+> Customer support shortcut: if the model container repeatedly restarts, send
+> the customer directly to [Known deployment issue: vLLM restart loop](#known-deployment-issue-vllm-restart-loop).
+
 ## Runtime architecture
 
 The deployment uses two GPU-enabled containers on one private Compose network.
@@ -183,7 +186,7 @@ python3 -m venv /tmp/paddleocr-hf-download
 source /tmp/paddleocr-hf-download/bin/activate
 python -m pip install --upgrade huggingface_hub
 
-export PADDLEX_MODEL_ROOT="$HOME/.paddlex/official_models"
+export PADDLEX_MODEL_ROOT="$(pwd)/models"
 mkdir -p "$PADDLEX_MODEL_ROOT"
 hf download PaddlePaddle/PaddleOCR-VL-1.5 \
   --local-dir "$PADDLEX_MODEL_ROOT/PaddleOCR-VL-1.5"
@@ -210,9 +213,10 @@ From this repository:
 cp .env.example .env
 ```
 
-Review `.env` and set `PADDLEX_MODEL_ROOT` to the absolute model-cache path.
-Leave `ENABLE_PUBSUB_LISTENER=false` for HTTP-only deployments. Add credentials
-only for the AI provider and optional features being used.
+Review `.env`. Its portable default, `PADDLEX_MODEL_ROOT=./models`, points to
+the directory created in step 2 regardless of which user runs Docker. Leave
+`ENABLE_PUBSUB_LISTENER=false` for HTTP-only deployments. Add credentials only
+for the AI provider and optional features being used.
 
 For example, an OpenAI HTTP-only deployment needs:
 
@@ -220,7 +224,7 @@ For example, an OpenAI HTTP-only deployment needs:
 AI_PROVIDER=openai
 OPENAI_API_KEY=your-key
 ENABLE_PUBSUB_LISTENER=false
-PADDLEX_MODEL_ROOT=/home/your-user/.paddlex/official_models
+PADDLEX_MODEL_ROOT=./models
 ```
 
 An API key is not used when `enable_ai_tables`, `enable_topic_ai`, and
@@ -707,13 +711,14 @@ They are intentionally excluded from the image and Git.
 | Variable | Default | Purpose |
 |---|---|---|
 | `API_PORT` | `8000` | Host port mapped to FastAPI port 8000. |
-| `PADDLEX_MODEL_ROOT` | `/home/ubuntu/.paddlex/official_models` | Host model-cache directory mounted into both services. |
+| `PADDLEX_MODEL_ROOT` | `./models` | Host model-cache directory mounted into both services. Use an explicit path if the model is stored elsewhere. |
 | `UBUNTU_MIRROR` | `http://archive.ubuntu.com/ubuntu` | Ubuntu package mirror used while building the API image. |
 | `CLIENT_NAME` | `JLR` | Prefix in generated output filenames. |
 | `DEFAULT_MODEL_TYPE` | `vl` | Default OCR path: `vl` or `v3`. |
 | `OCR_LANGUAGE` | `en` | Paddle OCR language configuration. |
 | `GPU_MEMORY_FRACTION` | `0.7` | Paddle-side memory fraction setting. |
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.75` | Fraction of GPU memory reserved by vLLM. |
+| `VLLM_LOGGING_LEVEL` | `INFO` | vLLM log level; temporarily use `DEBUG` for support diagnostics. |
 | `VLLM_MODEL_NAME` | `PaddleOCR-VL-1.5-0.9B` | Served model name requested by the API worker. |
 
 ### AI provider configuration
@@ -808,6 +813,213 @@ Typical healthy startup order:
 5. In Pub/Sub mode, API logs report that the listener thread and subscription
    started.
 
+## Known deployment issue: vLLM restart loop
+
+Use this standalone section when `docker ps -a` or `docker compose ps` shows
+the vLLM container repeatedly changing to a state such as:
+
+```text
+docker-paddle-ocr-vllm-1   Restarting (1) 8 seconds ago
+```
+
+`Restarting (1)` means the vLLM server process exited with status 1. Docker is
+relaunching it because the service uses `restart: unless-stopped`. A failed
+health check alone does not restart the container.
+
+The API container may still display `Up`. Compose dependency conditions control
+startup ordering; they do not automatically stop the API if vLLM crashes
+later. `/health` may therefore return 200 while `/ready` returns 503.
+
+### First command: collect the actual vLLM error
+
+Do not rebuild the images first. Capture the process error:
+
+```bash
+docker compose logs --no-color --timestamps --tail=200 vllm
+```
+
+The last exception normally identifies one of these failure classes:
+
+| Log text or symptom | Likely cause |
+|---|---|
+| Model path does not exist, invalid repository, or missing `config.json` | Wrong/empty model bind mount. |
+| `CUDA driver version is insufficient` | Host NVIDIA driver is incompatible with the container CUDA runtime. |
+| No NVIDIA driver, no CUDA device, or failed to infer device | NVIDIA Container Toolkit/runtime is not working. |
+| CUDA out of memory or engine-core initialization failure | Insufficient free VRAM or another GPU process is running. |
+| Exit code `137` or host OOM messages | Host RAM exhaustion or an external kill. |
+
+### Most common cause: running Compose as root changes `${HOME}`
+
+Older copies of `.env.example` used:
+
+```text
+PADDLEX_MODEL_ROOT=${HOME}/.paddlex/official_models
+```
+
+If a customer downloads the model as a normal user but later runs
+`sudo docker compose` or works in a root shell, `${HOME}` becomes `/root`.
+Compose then mounts `/root/.paddlex/official_models` instead of the actual
+directory under `/home/<user>`. Docker may create an empty host directory, so
+the container starts without `/models/PaddleOCR-VL-1.5` and immediately exits.
+
+Show the effective mount:
+
+```bash
+docker inspect "$(docker compose ps -q vllm)" \
+  --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}'
+
+grep '^PADDLEX_MODEL_ROOT=' .env
+```
+
+The current repository avoids user-dependent expansion by using:
+
+```text
+PADDLEX_MODEL_ROOT=./models
+```
+
+For an existing installation, either place the model in `./models` or set the
+exact absolute host path. For example:
+
+```text
+PADDLEX_MODEL_ROOT=/home/customer/.paddlex/official_models
+```
+
+Verify that the configured root contains the required subdirectory:
+
+```bash
+ls -lh ./models/PaddleOCR-VL-1.5/config.json
+ls -lh ./models/PaddleOCR-VL-1.5/model.safetensors
+```
+
+When using an absolute path, replace `./models` in those checks with that path.
+
+Apply the corrected mount without rebuilding:
+
+```bash
+docker compose up -d --force-recreate vllm
+docker compose logs -f vllm
+```
+
+After vLLM reports healthy:
+
+```bash
+docker compose up -d api
+docker compose ps
+curl -i http://localhost:8000/ready
+```
+
+### Verify the NVIDIA runtime
+
+If the model mount is correct, test the host and the exact vLLM image:
+
+```bash
+nvidia-smi
+
+docker run --rm --gpus all \
+  nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
+
+docker run --rm --gpus all \
+  --entrypoint nvidia-smi \
+  docker-paddle-ocr-vllm:latest
+```
+
+All three commands must display the intended GPU. If the CUDA container fails,
+fix the host driver/NVIDIA Container Toolkit before changing application code.
+
+### Check GPU memory
+
+The tested profile is a 24 GB NVIDIA A10G. Check for other GPU consumers and
+vLLM memory errors:
+
+```bash
+nvidia-smi
+docker compose logs --no-color vllm \
+  | grep -iE 'out of memory|oom|engine core|cuda'
+```
+
+If Compose is the only GPU workload but vLLM cannot allocate memory, try:
+
+```text
+VLLM_GPU_MEMORY_UTILIZATION=0.70
+```
+
+Then recreate vLLM. Lowering this value leaves more VRAM for the Paddle worker
+but reduces vLLM KV-cache capacity.
+
+### Enable vLLM debug logging
+
+Set this temporarily in `.env`:
+
+```text
+VLLM_LOGGING_LEVEL=DEBUG
+```
+
+Recreate and reproduce the failure:
+
+```bash
+docker compose up -d --force-recreate vllm
+docker compose logs --no-color --timestamps -f vllm
+```
+
+`VLLM_LOGGING_LEVEL` is supported by the pinned vLLM 0.19 runtime. Return it to
+`INFO` after diagnosis because debug logs are substantially noisier.
+
+### Final customer log request
+
+If the issue remains, ask the customer to run this block from the repository
+directory and send back `vllm-support.log`:
+
+```bash
+{
+  echo '=== timestamp ==='
+  date -u
+
+  echo '=== Docker versions ==='
+  docker version
+  docker compose version
+
+  echo '=== Compose state ==='
+  docker compose ps -a
+
+  VLLM_ID="$(docker compose ps -aq vllm)"
+  echo "VLLM_ID=${VLLM_ID}"
+
+  echo '=== Exit state ==='
+  docker inspect "${VLLM_ID}" \
+    --format 'State={{json .State}} Image={{.Config.Image}}'
+
+  echo '=== Effective mounts ==='
+  docker inspect "${VLLM_ID}" \
+    --format '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}'
+
+  echo '=== Safe vLLM configuration ==='
+  grep -E '^(PADDLEX_MODEL_ROOT|VLLM_MODEL_NAME|VLLM_GPU_MEMORY_UTILIZATION|VLLM_LOGGING_LEVEL)=' \
+    .env || true
+
+  MODEL_SOURCE="$(docker inspect "${VLLM_ID}" \
+    --format '{{range .Mounts}}{{if eq .Destination "/models"}}{{.Source}}{{end}}{{end}}')"
+  echo "MODEL_SOURCE=${MODEL_SOURCE}"
+
+  echo '=== Model directory ==='
+  ls -lah "${MODEL_SOURCE}/PaddleOCR-VL-1.5" || true
+
+  echo '=== Host GPU ==='
+  nvidia-smi || true
+
+  echo '=== GPU from the vLLM image ==='
+  VLLM_IMAGE="$(docker inspect "${VLLM_ID}" --format '{{.Config.Image}}')"
+  docker run --rm --gpus all --entrypoint nvidia-smi "${VLLM_IMAGE}" || true
+
+  echo '=== Last 500 vLLM log lines ==='
+  docker compose logs --no-color --timestamps --tail=500 vllm
+} >vllm-support.log 2>&1
+```
+
+This bundle deliberately excludes the full Compose environment so API keys and
+cloud credentials are not collected. Customers should still review the file
+and redact private hostnames, usernames, bucket names, or document paths before
+sharing it.
+
 ## Troubleshooting
 
 ### Establish the current failure boundary
@@ -892,7 +1104,7 @@ Check the host path configured in `.env`:
 
 ```bash
 grep '^PADDLEX_MODEL_ROOT=' .env
-ls "$HOME/.paddlex/official_models/PaddleOCR-VL-1.5"
+ls ./models/PaddleOCR-VL-1.5
 docker compose config | grep -A2 '/models'
 ```
 
@@ -946,7 +1158,7 @@ The API downloads layout-model assets into `PADDLEX_MODEL_ROOT` on demand. If a
 first request is interrupted, inspect for incomplete temporary directories:
 
 ```bash
-find "$HOME/.paddlex/official_models" -type d -name temp_dir -print
+find ./models -type d -name temp_dir -print
 docker compose logs api | grep -iE 'download|temp_dir|model source'
 ```
 
