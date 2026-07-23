@@ -30,6 +30,8 @@ services:
     environment:
       AI_PROVIDER: ${AI_PROVIDER:-openai}
       CHECKPOINT_DIR: /checkpoints
+      CHECKPOINT_MAX_MB: ${CHECKPOINT_MAX_MB:-500}
+      CLIENT_NAME: ${CLIENT_NAME:-JLR}
       DEFAULT_MODEL_TYPE: ${DEFAULT_MODEL_TYPE:-vl}
       ENABLE_PUBSUB_LISTENER: ${ENABLE_PUBSUB_LISTENER:-true}
       GCP_LOCATION: ${GCP_LOCATION:-europe-west2}
@@ -37,12 +39,15 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GPU_MEMORY_FRACTION: ${GPU_MEMORY_FRACTION:-0.7}
       LOG_DIR: /logs
+      LOG_MAX_MB: ${LOG_MAX_MB:-200}
+      MAX_DOWNLOAD_MB: ${MAX_DOWNLOAD_MB:-100}
       OCR_LANGUAGE: ${OCR_LANGUAGE:-en}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OUTPUT_DIR: /outputs
       PUBSUB_SUBSCRIPTION: ${PUBSUB_SUBSCRIPTION:-projects/jlr-dl-iqm/subscriptions/iqm_rms_ai_upload_sub}
       PUBSUB_TOPIC: ${PUBSUB_TOPIC:-projects/jlr-dl-iqm/topics/iqm_rms_ai}
       PUBSUB_NUM_PAGES: ${PUBSUB_NUM_PAGES:-0}
+      REQUEST_TIMEOUT_S: ${REQUEST_TIMEOUT_S:-60}
       VERTEX_MODEL: ${VERTEX_MODEL:-gemini-2.5-flash}
       VLLM_HEALTH_URL: http://vllm:8080/health
       VLLM_MODEL_NAME: ${VLLM_MODEL_NAME:-PaddleOCR-VL-1.5-0.9B}
