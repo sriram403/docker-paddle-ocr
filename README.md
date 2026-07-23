@@ -8,8 +8,8 @@ The service extracts document hierarchy, clauses, tables, figures, references,
 topic labels, requirement labels, text-type labels, and an optional regulatory
 briefing.
 
-> Customer support shortcut: if the model container repeatedly restarts, send
-> the customer directly to [Known deployment issue: vLLM restart loop](#known-deployment-issue-vllm-restart-loop).
+> Troubleshooting shortcut: if the model container repeatedly restarts, go
+> directly to [Known deployment issue: vLLM restart loop](#known-deployment-issue-vllm-restart-loop).
 
 ## Runtime architecture
 
@@ -718,7 +718,7 @@ They are intentionally excluded from the image and Git.
 | `OCR_LANGUAGE` | `en` | Paddle OCR language configuration. |
 | `GPU_MEMORY_FRACTION` | `0.7` | Paddle-side memory fraction setting. |
 | `VLLM_GPU_MEMORY_UTILIZATION` | `0.75` | Fraction of GPU memory reserved by vLLM. |
-| `VLLM_LOGGING_LEVEL` | `INFO` | vLLM log level; temporarily use `DEBUG` for support diagnostics. |
+| `VLLM_LOGGING_LEVEL` | `INFO` | vLLM log level; temporarily use `DEBUG` for detailed diagnostics. |
 | `VLLM_MODEL_NAME` | `PaddleOCR-VL-1.5-0.9B` | Served model name requested by the API worker. |
 
 ### AI provider configuration
@@ -856,8 +856,8 @@ Older copies of `.env.example` used:
 PADDLEX_MODEL_ROOT=${HOME}/.paddlex/official_models
 ```
 
-If a customer downloads the model as a normal user but later runs
-`sudo docker compose` or works in a root shell, `${HOME}` becomes `/root`.
+If you download the model as a normal user but later run `sudo docker compose`
+or work in a root shell, `${HOME}` becomes `/root`.
 Compose then mounts `/root/.paddlex/official_models` instead of the actual
 directory under `/home/<user>`. Docker may create an empty host directory, so
 the container starts without `/models/PaddleOCR-VL-1.5` and immediately exits.
@@ -881,7 +881,7 @@ For an existing installation, either place the model in `./models` or set the
 exact absolute host path. For example:
 
 ```text
-PADDLEX_MODEL_ROOT=/home/customer/.paddlex/official_models
+PADDLEX_MODEL_ROOT=/home/your-user/.paddlex/official_models
 ```
 
 Verify that the configured root contains the required subdirectory:
@@ -964,10 +964,10 @@ docker compose logs --no-color --timestamps -f vllm
 `VLLM_LOGGING_LEVEL` is supported by the pinned vLLM 0.19 runtime. Return it to
 `INFO` after diagnosis because debug logs are substantially noisier.
 
-### Final customer log request
+### Collect a complete diagnostic log
 
-If the issue remains, ask the customer to run this block from the repository
-directory and send back `vllm-support.log`:
+If the issue remains, run this block from the repository directory. It creates
+`vllm-support.log`, which can be provided when requesting further assistance:
 
 ```bash
 {
@@ -1016,9 +1016,8 @@ directory and send back `vllm-support.log`:
 ```
 
 This bundle deliberately excludes the full Compose environment so API keys and
-cloud credentials are not collected. Customers should still review the file
-and redact private hostnames, usernames, bucket names, or document paths before
-sharing it.
+cloud credentials are not collected. Review the file and redact private
+hostnames, usernames, bucket names, or document paths before sharing it.
 
 ## Troubleshooting
 
