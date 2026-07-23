@@ -1,5 +1,10 @@
 __pycache__
 logs
 outputs
+checkpoints
+gpu_worker.lock
 *.log
 .git
+*.ipynb
+*.pdf
+*.docx

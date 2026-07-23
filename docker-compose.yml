@@ -1,0 +1,58 @@
+services:
+  vllm:
+    build:
+      context: .
+      dockerfile: Dockerfile.vllm
+    environment:
+      MODEL_DIR: /models/PaddleOCR-VL-1.5
+      VLLM_GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.75}
+      VLLM_MODEL_NAME: ${VLLM_MODEL_NAME:-PaddleOCR-VL-1.5-0.9B}
+    gpus: all
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 30
+      start_period: 90s
+    restart: unless-stopped
+    volumes:
+      - ${PADDLEX_MODEL_ROOT:-/home/ubuntu/.paddlex/official_models}:/models:ro
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UBUNTU_MIRROR: ${UBUNTU_MIRROR:-http://archive.ubuntu.com/ubuntu}
+    depends_on:
+      vllm:
+        condition: service_healthy
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      CHECKPOINT_DIR: /checkpoints
+      DEFAULT_MODEL_TYPE: ${DEFAULT_MODEL_TYPE:-vl}
+      ENABLE_PUBSUB_LISTENER: ${ENABLE_PUBSUB_LISTENER:-true}
+      GCP_LOCATION: ${GCP_LOCATION:-europe-west2}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GPU_MEMORY_FRACTION: ${GPU_MEMORY_FRACTION:-0.7}
+      LOG_DIR: /logs
+      OCR_LANGUAGE: ${OCR_LANGUAGE:-en}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OUTPUT_DIR: /outputs
+      PUBSUB_SUBSCRIPTION: ${PUBSUB_SUBSCRIPTION:-projects/jlr-dl-iqm/subscriptions/iqm_rms_ai_upload_sub}
+      PUBSUB_TOPIC: ${PUBSUB_TOPIC:-projects/jlr-dl-iqm/topics/iqm_rms_ai}
+      PUBSUB_NUM_PAGES: ${PUBSUB_NUM_PAGES:-0}
+      VERTEX_MODEL: ${VERTEX_MODEL:-gemini-2.5-flash}
+      VLLM_HEALTH_URL: http://vllm:8080/health
+      VLLM_MODEL_NAME: ${VLLM_MODEL_NAME:-PaddleOCR-VL-1.5-0.9B}
+      VLLM_SERVER_URL: http://vllm:8080/v1
+    gpus: all
+    ports:
+      - "${API_PORT:-8000}:8000"
+    restart: unless-stopped
+    volumes:
+      - ./outputs:/outputs
+      - ./logs:/logs
+      - ./checkpoints:/checkpoints
+      - ${PADDLEX_MODEL_ROOT:-/home/ubuntu/.paddlex/official_models}:/root/.paddlex/official_models

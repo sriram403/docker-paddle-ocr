@@ -1,0 +1,8 @@
+FROM vllm/vllm-openai:v0.19.0
+
+ENV MODEL_DIR=/models/PaddleOCR-VL-1.5 \
+    VLLM_MODEL_NAME=PaddleOCR-VL-1.5-0.9B \
+    VLLM_GPU_MEMORY_UTILIZATION=0.75
+
+ENTRYPOINT ["/bin/bash", "-lc"]
+CMD ["python3 -m vllm.entrypoints.openai.api_server --model \"${MODEL_DIR}\" --served-model-name \"${VLLM_MODEL_NAME}\" --trust-remote-code --port 8080 --host 0.0.0.0 --max-model-len 16384 --gpu-memory-utilization \"${VLLM_GPU_MEMORY_UTILIZATION}\" --max-num-seqs 8 --dtype bfloat16"]

@@ -3,14 +3,19 @@ import json
 import threading
 import uuid
 from datetime import datetime
+from pathlib import PurePosixPath
 
+import fitz
 from google.cloud import pubsub_v1, storage
 from google.api_core.exceptions import GoogleAPIError
 
 from app.core.config import (
     PUBSUB_SUBSCRIPTION,
     PUBSUB_TOPIC,
+    PUBSUB_NUM_PAGES,
     AI_PROVIDER,
+    DEFAULT_MODEL_TYPE,
+    VERTEX_MODEL,
 )
 from app.core.logger import get_logger
 from app.services.doc_intel_service import DocIntelService
@@ -98,17 +103,25 @@ def _handle_message(message: pubsub_v1.subscriber.message.Message, publisher: pu
         return
 
     # Process document
+    if PUBSUB_NUM_PAGES > 0:
+        num_pages = PUBSUB_NUM_PAGES
+    else:
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
+            num_pages = len(document)
+
     response = service.process_document(
         pdf_bytes=pdf_bytes,
-        num_pages=10,
+        num_pages=num_pages,
         enable_ai_tables=False,
-        analysis_model="gpt-4o-mini",
+        analysis_model=("gpt-4o-mini" if AI_PROVIDER == "openai" else VERTEX_MODEL),
         do_summary=False,
-        model_type="v3",
+        model_type=DEFAULT_MODEL_TYPE,
         ai_provider=AI_PROVIDER,
         regulation_change_id=regulation_change_id,
         document_version=document_version,
         gcs_file_path=gcs_file_path,
+        document_name=PurePosixPath(gcs_file_path).name or "unknown.pdf",
+        enable_topic_ai=False,
     )
 
     # Save output JSON locally and upload to GCS
@@ -144,7 +157,12 @@ def start_pull_listener():
     def callback(message: pubsub_v1.subscriber.message.Message):
         _handle_message(message, publisher)
 
-    streaming_pull_future = subscriber.subscribe(PUBSUB_SUBSCRIPTION, callback=callback)
+    flow_control = pubsub_v1.types.FlowControl(max_messages=1)
+    streaming_pull_future = subscriber.subscribe(
+        PUBSUB_SUBSCRIPTION,
+        callback=callback,
+        flow_control=flow_control,
+    )
 
     try:
         streaming_pull_future.result()  # blocks until cancelled or error

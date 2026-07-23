@@ -4,9 +4,6 @@ from datetime import datetime
 from pathlib import Path
 import uuid
 
-from google.cloud import storage
-from google.api_core.exceptions import GoogleAPIError
-
 from app.core.config import OUTPUT_DIR, CLIENT_NAME
 from app.core.logger import get_logger
 
@@ -55,6 +52,8 @@ def _derive_gcs_output_path(gcs_input_path: str, filename: str) -> tuple[str, st
 def _upload_to_gcs(data: dict, bucket_name: str, blob_path: str, gcs_output_uri: str):
     """Upload JSON data to a GCS blob. Logs success, permission, and unexpected errors."""
     try:
+        from google.cloud import storage
+
         logger.info(f"Uploading output JSON to GCS: {gcs_output_uri}")
         client = storage.Client()
         bucket = client.bucket(bucket_name)
@@ -65,14 +64,14 @@ def _upload_to_gcs(data: dict, bucket_name: str, blob_path: str, gcs_output_uri:
         )
         logger.info(f"Successfully uploaded output JSON to GCS: {gcs_output_uri}")
         return True
-    except GoogleAPIError as e:
+    except ImportError as e:
+        logger.error(f"GCS dependencies are not installed: {e}")
+        return False
+    except Exception as e:
         if "403" in str(e) or "Permission" in str(e):
             logger.error(f"GCS upload permission denied for {gcs_output_uri}: {e}")
         else:
             logger.error(f"GCS upload API error for {gcs_output_uri}: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"GCS upload unexpected error for {gcs_output_uri}: {e}")
         return False
 
 

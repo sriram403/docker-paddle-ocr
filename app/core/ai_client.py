@@ -9,6 +9,7 @@ import httpx
 import openai
 import google.auth
 from google import genai
+from google.genai import types
 
 from app.core.config import (
     OPENAI_API_KEY,
@@ -202,6 +203,7 @@ class VertexAIClient(BaseAIClient):
             # For JSON mode, add instruction to the prompt
             if response_format == "json":
                 full_prompt = f"{full_prompt}\n\nRespond only with valid JSON."
+                config["response_mime_type"] = "application/json"
 
             response = self.client.models.generate_content(
                 model=model_name,
@@ -243,13 +245,14 @@ class VertexAIClient(BaseAIClient):
             # Decode base64 image for Gemini
             image_bytes = base64.b64decode(base64_image)
 
-            # Gemini multimodal format
             contents = [
                 full_prompt,
-                {"mime_type": "image/jpeg", "data": base64_image}
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
             ]
 
             config = {"temperature": temperature}
+            if response_format == "json":
+                config["response_mime_type"] = "application/json"
 
             response = self.client.models.generate_content(
                 model=model_name,

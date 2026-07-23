@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 logs/
 outputs/
+checkpoints/
+gpu_worker.lock
 *.log
 experiment_1.ipynb
 vertex_smoke_test.py
